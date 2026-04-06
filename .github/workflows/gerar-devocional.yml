@@ -1,0 +1,98 @@
+name: Gerar Devocional Diário
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # 9h UTC = 6h Brasília
+  workflow_dispatch:       # permite rodar manualmente também
+
+jobs:
+  gerar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gerar e salvar devocional
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          node -e "
+          const https = require('https');
+
+          function post(hostname, path, headers, body) {
+            return new Promise((resolve, reject) => {
+              const data = JSON.stringify(body);
+              const req = https.request({ hostname, path, method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(data) } }, res => {
+                let raw = '';
+                res.on('data', c => raw += c);
+                res.on('end', () => resolve(JSON.parse(raw)));
+              });
+              req.on('error', reject);
+              req.write(data);
+              req.end();
+            });
+          }
+
+          async function main() {
+            const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+            console.log('Gerando devocional para:', hoje);
+
+            const livros = ['Igreja Centrada','O Deus Pródigo','Ego Transformado','A Fé na Era do Ceticismo','Oração','Deuses Falsos'];
+            const livro = livros[Math.floor(Math.random() * livros.length)];
+
+            const prompt = \`Você é um pastor reformado especialista na teologia de Tim Keller. Crie um devocional cristão completo em português brasileiro para o dia de hoje.
+
+          Use os conceitos e insights do livro \"\${livro}\" de Tim Keller como referência teológica.
+
+          REGRAS OBRIGATÓRIAS:
+          1. O versículo DEVE ser da Bíblia NVI versão 2013, com o texto exato dessa tradução.
+          2. Escreva como um ser humano escreve: linguagem natural e calorosa, como um pastor que conversa com sua congregação.
+          3. PROIBIDO usar travessão (—). Substitua por vírgula, ponto, parênteses ou reescreva.
+          4. Evite listas numeradas ou marcadores. Escreva em prosa fluida.
+          5. Centrado no evangelho e na graça, apontando para Cristo. Evite moralismo.
+          6. Varie o tom: às vezes mais direto, às vezes mais contemplativo.
+
+          Responda SOMENTE com JSON válido sem markdown:
+          {
+            \"titulo\": \"Título curto, humano e provocativo. Sem clichês religiosos.\",
+            \"tema\": \"Categoria do tema\",
+            \"versiculo_texto\": \"Texto exato do versículo na NVI 2013\",
+            \"versiculo_ref\": \"Livro Capítulo:Versículo\",
+            \"reflexao\": \"Reflexão em 2-3 parágrafos separados por \\\\n\\\\n. Profundidade teológica à la Keller.\",
+            \"aplicacao\": \"Aplicação prática em linguagem direta. Uma ou duas ações concretas para hoje.\",
+            \"oracao\": \"Oração em primeira pessoa, sincera e específica. Máx 3 linhas.\",
+            \"referencia\": \"\${livro}\"
+          }\`;
+
+            // Gerar com Claude
+            const aiRes = await post('api.anthropic.com', '/v1/messages', {
+              'Content-Type': 'application/json',
+              'x-api-key': process.env.ANTHROPIC_API_KEY,
+              'anthropic-version': '2023-06-01'
+            }, {
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 1200,
+              messages: [{ role: 'user', content: prompt }]
+            });
+
+            const text = (aiRes.content || []).map(c => c.text || '').join('');
+            const clean = text.replace(/\`\`\`json|\`\`\`/g, '').trim();
+            const dev = JSON.parse(clean);
+            dev.data = hoje;
+            dev.tipo = 'ia';
+
+            console.log('Devocional gerado:', dev.titulo);
+
+            // Salvar no Supabase
+            const supabaseHost = process.env.SUPABASE_URL.replace('https://', '');
+            const saveRes = await post(supabaseHost, '/rest/v1/devocionais', {
+              'Content-Type': 'application/json',
+              'apikey': process.env.SUPABASE_SECRET_KEY,
+              'Authorization': 'Bearer ' + process.env.SUPABASE_SECRET_KEY,
+              'Prefer': 'resolution=merge-duplicates'
+            }, dev);
+
+            console.log('Salvo no Supabase com sucesso!');
+          }
+
+          main().catch(e => { console.error(e); process.exit(1); });
+          "
