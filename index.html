@@ -365,7 +365,7 @@ opacity:0;transition:all 0.3s;pointer-events:none;z-index:200;white-space:nowrap
     <button class="nav-btn active" id="nav-home" onclick="showPage('home')">Hoje</button>
     <button class="nav-btn" id="nav-arquivo" onclick="showPage('arquivo')">Arquivo</button>
   </div>
-  <button class="nav-admin-btn" onclick="showPage('admin')">⚙ Admin</button>
+  <button class="nav-admin-btn" onclick="abrirAdmin()">⚙ Admin</button>
 </nav>
 
 <!-- HOME -->
@@ -602,6 +602,21 @@ function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ===== ADMIN AUTH =====
+function abrirAdmin() {
+  if (sessionStorage.getItem('pp_auth') === '1') {
+    showPage('admin');
+    return;
+  }
+  const senha = prompt('Senha do painel:');
+  if (senha === 'Feliz404.') {
+    sessionStorage.setItem('pp_auth', '1');
+    showPage('admin');
+  } else if (senha !== null) {
+    toast('Senha incorreta.');
+  }
 }
 
 // ===== NAV =====
